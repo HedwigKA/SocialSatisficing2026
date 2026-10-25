@@ -23,8 +23,8 @@ class Q_learning(object):
 
     def update_Q(
             self, current_state, next_state,
-            current_action, reward, next_action=None):
-        maxQ = max(self.Q[next_state])
+            current_action, reward, next_action=None, done=False):
+        maxQ = 0 if done else max(self.Q[next_state])
         TD = (reward
               + self.discount_rate
               * maxQ
@@ -41,7 +41,7 @@ class Q_learning(object):
 # sarsa学習
 class Sarsa(Q_learning):
     def __init__(self, learning_rate, discount_rate, num_state, num_action):
-        super.__init__(learning_rate, discount_rate, num_state, num_action)
+        super().__init__(learning_rate, discount_rate, num_state, num_action)
 
     def update_Q(
             self, current_state, next_state,
@@ -83,17 +83,28 @@ class RS(object):
 
     def update(
             self, current_state, current_action,
-            reward, next_state, next_action=None):
-        self.value_func.update_Q(current_state, next_state, current_action, reward, next_action)
+            reward, next_state, next_action=None, done=False):
+        self.value_func.update_Q(
+            current_state,
+            next_state,
+            current_action,
+            reward,
+            next_action,
+            done=done,
+        )
         # τ値更新準備
-        max_next_state_Q = max(self.value_func.get_Q()[next_state])
-        idx = np.where(self.value_func.get_Q()[next_state] == max_next_state_Q)
-        action_up = random.choice(idx[0])
+        if done:
+            next_tau = 0
+        else:
+            max_next_state_Q = max(self.value_func.get_Q()[next_state])
+            idx = np.where(self.value_func.get_Q()[next_state] == max_next_state_Q)
+            action_up = random.choice(idx[0])
+            next_tau = self.tau[next_state, action_up]
         # τ値更新
         self.tau_current[current_state, current_action] += 1
         self.tau_post[current_state, current_action] += (self.tau_alpha
                                                          * (self.tau_gamma
-                                                            * self.tau[next_state, action_up]
+                                                            * next_tau
                                                             - self.tau_post[current_state, current_action]))
 
         self.tau[current_state, current_action] = (self.tau_current[current_state, current_action]

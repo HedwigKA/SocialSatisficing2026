@@ -75,20 +75,29 @@ class GlidWorld(object):
     
 
 class SuboptimaWorld(GlidWorld):
-    def __init__(self, row, col, start, goal=None):
+    DEFAULT_REWARD_LAYOUT = [8, 1, 3, 5, 6, 4, 2, 7]
+
+    def __init__(self, row, col, start, goal=None, reward_values=None):
         super().__init__(row, col, start, goal=None)
 
         self.world = np.zeros([row, col])
-        list_reward = [1, 2, 3, 4, 5, 6, 7, 8]
+        self.goal_coordinates = [
+            (0, 2),
+            (0, col - 3),
+            (2, 0),
+            (2, col - 1),
+            (row - 3, 0),
+            (row - 3, col - 1),
+            (row - 1, 2),
+            (row - 1, col - 3),
+        ]
+        if reward_values is None:
+            reward_values = self.DEFAULT_REWARD_LAYOUT
+        if len(reward_values) != len(self.goal_coordinates):
+            raise ValueError("reward_values must have exactly 8 values.")
 
-        self.world[0, 2] = list_reward[7]
-        self.world[0, row-3] = list_reward[0]
-        self.world[2, 0] = list_reward[2]
-        self.world[2, row-1] = list_reward[4]
-        self.world[col-3, 0] = list_reward[5]
-        self.world[col-3, row-1] = list_reward[3]
-        self.world[col-1, 2] = list_reward[1]
-        self.world[col-1, row-3] = list_reward[6]
+        for (goal_row, goal_col), reward in zip(self.goal_coordinates, reward_values):
+            self.world[goal_row, goal_col] = reward
 
     def evaluate_reward(self, state):
         row = self.state_to_row(state)

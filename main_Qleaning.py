@@ -1,83 +1,146 @@
-
-import numpy as np
+import argparse
+import os
+import random
 import sys
 
-import model_Qshare
-import env
+import numpy as np
 import pandas as pd
-import time
-import os
 
-from copy import deepcopy
+import env
+import model_Qshare
 
-# hyper parameter
-lr = 0.1
-dr = 0.9
-TG = 600
 
-N_agent = 4
+# default hyper parameter
+DEFAULT_LR = 0.1
+DEFAULT_DR = 0.9
+DEFAULT_TG = 600
+DEFAULT_N_AGENT = 4
+DEFAULT_SIMULATION_TIMES = 1000
+DEFAULT_EPISODE_TIMES = 1000
+DEFAULT_MAX_STEPS = 1000
 
-SIMULATION_TIMES = 1000
-EPISODE_TIMES = 1000
 
-env = env.SuboptimaWorld(row=9, col=9, start=int(9*9/2))
-df_reward = [pd.DataFrame() for i in range(N_agent)]
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run Q-shared experiments.")
+    parser.add_argument("--agents", type=int, default=DEFAULT_N_AGENT)
+    parser.add_argument("--simulations", type=int, default=DEFAULT_SIMULATION_TIMES)
+    parser.add_argument("--episodes", type=int, default=DEFAULT_EPISODE_TIMES)
+    parser.add_argument("--tg", type=int, default=DEFAULT_TG)
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--non-identical-envs", action="store_true")
+    parser.add_argument("--max-steps", type=int, default=DEFAULT_MAX_STEPS)
+    return parser.parse_args()
 
-time = time.asctime()
 
-def make_output_path(N_agent):
-    path = "output/Qshare/TG{}_{}_agents" .format(TG, N_agent)
+def set_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+
+
+def make_output_path(tg, n_agent):
+    path = f"output/Qshare/TG{tg}_{n_agent}_agents"
     os.makedirs(path, exist_ok=True)
     return path
 
-def train(env, SIMULATION_TIMES, EPISODE_TIMES, output_path):
-    player = []
-    for _ in range(N_agent):
-        player.append(model_Qshare.agent(lr, dr, TG, env.num_state, num_action=env.num_action))
-    
-    for n_simu in range(SIMULATION_TIMES):
-        reward_graph = np.zeros((len(player), EPISODE_TIMES))
-        step_graph = np.zeros((len(player), EPISODE_TIMES))
-        for n_agent in range(len(player)):
-            player[n_agent].init_params()
-        sys.stdout.write("\r%s/%s" % (str(n_simu), str(SIMULATION_TIMES-1)))
-        # GRCのトレーニング
-        for n_epi in range(EPISODE_TIMES):
-#             print("n_epi:{}".format(n_epi))
-#             sys.stdout.write("\r%s/%s" % (str(n_epi), str(EPISODE_TIMES-1)))
-            for n_agent in range(len(player)):
-                # print("エージェント{}体目" .format(n_agent))
-                current_state = deepcopy(env.start_state)
+
+def create_envs(n_agent, non_identical_envs=False, seed=0):
+    envs = []
+    for n_agent_idx in range(n_agent):
+        reward_values = None
+        if non_identical_envs:
+            reward_values = env.SuboptimaWorld.DEFAULT_REWARD_LAYOUT.copy()
+            rng = random.Random(seed + 30000 + n_agent_idx)
+            rng.shuffle(reward_values)
+
+        envs.append(
+            env.SuboptimaWorld(
+                row=9,
+                col=9,
+                start=int(9 * 9 / 2),
+                reward_values=reward_values,
+            )
+        )
+    return envs
+
+
+def train(envs, simulations, episodes, output_path, params):
+    players = [
+        model_Qshare.agent(
+            params["lr"],
+            params["dr"],
+            params["tg"],
+            envs[0].num_state,
+            num_action=envs[0].num_action,
+        )
+        for _ in range(len(envs))
+    ]
+
+    df_reward = [pd.DataFrame() for _ in range(len(players))]
+
+    for n_simu in range(simulations):
+        reward_graph = np.zeros((len(players), episodes))
+        step_graph = np.zeros((len(players), episodes))
+        for n_agent in range(len(players)):
+            players[n_agent].init_params()
+
+        sys.stdout.write("\r%s/%s" % (str(n_simu), str(simulations - 1)))
+        for n_epi in range(episodes):
+            for n_agent, agent_env in enumerate(envs):
+                current_state = agent_env.start_state
                 step = 0
-                while True:
-                    # sys.stdout.write("\r%s" % str(step))
-                    current_action = player[n_agent].get_select_action(current_state, n_epi)
-                    next_state, reward, done = env.step(current_state, current_action)
+                done = False
+                for step in range(params["max_steps"]):
+                    current_action = players[n_agent].get_select_action(current_state, n_epi)
+                    next_state, reward, done = agent_env.step(current_state, current_action)
 
                     reward_graph[n_agent, n_epi] += reward
 
-                    player[n_agent].update(current_state, current_action, reward, next_state)
+                    players[n_agent].update(
+                        current_state,
+                        current_action,
+                        reward,
+                        next_state,
+                        done=done,
+                    )
 
                     current_state = next_state
-                    step += 1
-
-                    if done is True:
+                    if done:
                         break
-            
-            for n in range(len(player)):
-                player[n].share_Q(player)
+                step_graph[n_agent, n_epi] = step + 1
 
-        for n in range(len(player)):
-            df_reward[n]["{}".format(n_simu)] = reward_graph[n]
+            for n in range(len(players)):
+                players[n].share_Q(players)
 
-    reward_graph = reward_graph / SIMULATION_TIMES
-    step_graph = step_graph / SIMULATION_TIMES
-#     print(reward_graph)
-    for n in range(N_agent):
-        df_reward[n].to_csv(output_path+"/agent_{}.csv" .format(n))
+        for n in range(len(players)):
+            df_reward[n][f"{n_simu}"] = reward_graph[n]
+
+    reward_graph = reward_graph / simulations
+    step_graph = step_graph / simulations
+    for n in range(len(players)):
+        df_reward[n].to_csv(output_path + f"/agent_{n}.csv")
 
     return reward_graph, step_graph
 
+
 if __name__ == "__main__":
-    output_path = make_output_path(N_agent)
-    train(env, SIMULATION_TIMES, EPISODE_TIMES, output_path)
+    args = parse_args()
+    set_seed(args.seed)
+
+    envs = create_envs(
+        n_agent=args.agents,
+        non_identical_envs=args.non_identical_envs,
+        seed=args.seed,
+    )
+    output_path = make_output_path(args.tg, args.agents)
+    train(
+        envs,
+        args.simulations,
+        args.episodes,
+        output_path,
+        {
+            "lr": DEFAULT_LR,
+            "dr": DEFAULT_DR,
+            "tg": args.tg,
+            "max_steps": args.max_steps,
+        },
+    )
