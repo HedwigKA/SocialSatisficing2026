@@ -58,8 +58,8 @@ class Q_learning(object):
 
     def update_Q(
             self, current_state, next_state,
-            current_action, reward, next_action=None):
-        maxQ = max(self.Q[next_state])
+            current_action, reward, next_action=None, done=False):
+        maxQ = 0 if done else max(self.Q[next_state])
         TD = (reward
               + self.discount_rate
               * maxQ
@@ -88,8 +88,8 @@ class agent(object):
         self.value_func.init_params()
         self.policy.init_params()
 
-    def update(self, current_state, current_action, reward, next_state):
-        self.value_func.update_Q(current_state, next_state, current_action, reward)
+    def update(self, current_state, current_action, reward, next_state, done=False):
+        self.value_func.update_Q(current_state, next_state, current_action, reward, done=done)
 
     # 各行動についてmax Q(s, a)を共有
     def share_Q(self, agents):

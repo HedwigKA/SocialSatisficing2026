@@ -1,96 +1,108 @@
 # Social Satisficing
 
-This repository contains Python implementations, experiment scripts, notebooks, and simulation outputs for the study:
+This repository contains Python implementations and experiment scripts for:
 
 > **Social satisficing: Multi-agent reinforcement learning with satisficing agents**  
 > Daisuke Uragami, Noriaki Sonota, and Tatsuji Takahashi  
-> *BioSystems*, Volume 243, Article 105276 (2024)
+> *BioSystems*, 243, 105276 (2024)
 
-Paper DOI: [10.1016/j.biosystems.2024.105276](https://doi.org/10.1016/j.biosystems.2024.105276)
+DOI: [10.1016/j.biosystems.2024.105276](https://doi.org/10.1016/j.biosystems.2024.105276)
 
-## Overview
+## What is implemented
 
-The project investigates **social satisficing**, a multi-agent reinforcement learning framework in which agents share a small amount of information to coordinate exploration and exploitation. Instead of sharing complete value functions, the proposed **episodic satisficing (ES)** algorithm shares the maximum episodic return achieved by the group and uses it to set adaptive aspiration levels.
+- **SuboptimaWorld** (`env.py`): 9x9 grid, center start, 4 actions, 8 terminal circumferential goals with rewards 1–8.
+- **Q-learning**: α=0.1, γ=0.9 defaults (configurable from CLI).
+- **RS (risk-sensitive satisficing)**: includes reliability (`tau`) updates.
+- **GRC (global reference conversion)**: episodic-to-local aspiration conversion.
+- **ES-style social satisficing**: each agent keeps separate Q/tau and shares only the group max episodic reference.
+- **Q-shared baseline**: element-wise max Q-sharing across agents.
 
-The experiments use **SuboptimaWorld**, a 9 × 9 GridWorld containing one optimal goal with reward 8 and seven suboptimal goals with rewards 1–7. The repository compares:
+## Important implementation notes
 
-- **ES — Episodic satisficing:** agents share the maximum episodic return.
-- **SS — State-wise satisficing:** agents share aspiration levels for every state.
-- **Q-shared:** agents share all Q-values and use an ε-greedy policy.
-- **RS — Risk-sensitive satisficing:** the underlying action-selection framework used by ES and SS.
-- **GRC — Global reference conversion:** converts an episodic aspiration into state-wise aspiration levels.
+- Terminal Q updates are **done-aware** (no bootstrap term from terminal next states).
+- Episodes now have a configurable safety cap (`--max-steps`) to avoid unbounded loops.
+- Multi-agent experiments use **one environment instance per agent**.
+- Non-identical environment mode (`--non-identical-envs`) shuffles reward assignments independently per agent while keeping the same 8 goal coordinates.
+- Deterministic seeding is supported via `--seed` (Python `random` + NumPy).
 
-## Main idea
+## Repository structure
 
-The risk-sensitive satisficing value is computed as:
+- `env.py` — GridWorld/SuboptimaWorld environment.
+- `model.py` — RS/GRC/social satisficing model code.
+- `model_RS.py` — RS-sharing model code.
+- `model_Qshare.py` — Q-shared model code.
+- `main_social_satisficing.py` — ES-style social satisficing experiments.
+- `main_RS.py` — RS-sharing experiments.
+- `main_Qleaning.py` — Q-shared experiments.
+- `main_GRC.py` — GRC experiments.
+- `tests/` — lightweight unit tests.
 
-\[
-RS(s,a) = \tau(s,a) [Q(s,a) - \rho(s)]
-\]
+## Running experiments
 
-where:
+All scripts expose CLI options so source edits are not required for common settings.
 
-- `Q(s, a)` is the learned action value;
-- `τ(s, a)` is the reliability of the state-action pair; and
-- `ρ(s)` is the local aspiration level.
-
-For ES, the shared episodic aspiration is the best moving-average return among the agents:
-
-\[
-\rho_E = \max_m R_E^m
-\]
-
-Each agent then converts this group-level reference into local state-wise aspiration levels using global reference conversion. This allows the agents to preserve behavioral diversity while collectively improving their exploration target.
-
-## Repository contents
-
-### Python modules and experiment entry points
-
-- `env.py` — SuboptimaWorld environment.
-- `model.py` — social satisficing model.
-- `model_RS.py` — risk-sensitive satisficing model.
-- `model_Qshare.py` — Q-shared model.
-- `main_social_satisficing.py` — social satisficing experiments.
-- `main_RS.py` — RS experiments.
-- `main_Qleaning.py` — Q-learning/Q-shared experiments.
-- `main_GRC.py` — global reference conversion experiments.
-
-### Analysis and results
-
-- `graph.ipynb` — notebook for generating figures and analyzing results.
-- `graph/` — generated plots corresponding to the simulation experiments.
-- `output/` — CSV files containing experiment results for different algorithms, numbers of agents, and exploration settings.
-
-The repository also includes Jupyter checkpoint files under `.ipynb_checkpoints/`.
-
-## Reproducing the experiments
-
-The scripts require Python and commonly used numerical/data-analysis packages such as NumPy, pandas, and Matplotlib. A typical workflow is:
+### Social satisficing (ES-style)
 
 ```bash
-python main_social_satisficing.py
-python main_RS.py
-python main_Qleaning.py
-python main_GRC.py
+python main_social_satisficing.py \
+  --agents 4 \
+  --simulations 1000 \
+  --episodes 1000 \
+  --aspiration 0.0 \
+  --seed 0 \
+  --max-steps 1000
 ```
 
-Generated data can be inspected in `output/`, and plots can be regenerated with `graph.ipynb`.
+Non-identical/shuffled environments (paper Figure 6 style):
 
-> The exact runtime and output depend on the experiment parameters configured in each script. Review the scripts before running large batches of simulations.
+```bash
+python main_social_satisficing.py --agents 4 --non-identical-envs --seed 0
+```
 
-## Key findings from the paper
+### RS-sharing
 
-The simulations reported in the paper show that:
+```bash
+python main_RS.py --agents 8 --aspiration 0.0 --seed 0 --max-steps 1000
+```
 
-1. ES can adapt the exploration–exploitation balance without an externally tuned ε-greedy exploration schedule.
-2. Sharing only a scalar group-level return can outperform methods that share substantially more information.
-3. Increasing the number of ES agents improves both the average reward and the probability of discovering the optimal goal.
-4. ES maintains useful diversity among agents while their learned behavior eventually converges toward the optimal reward.
-5. ES remains effective when agents learn in similar but non-identical environments, whereas methods that copy complete Q-tables are more sensitive to environmental differences.
+Output is normalized under `output/RSShare/`.
 
-## Paper metadata
+### Q-shared
 
-The accompanying paper metadata and extracted equations, tables, figures, and references are provided in `social_satisficing_full.json` when that file is included in the repository.
+```bash
+python main_Qleaning.py --agents 4 --tg 600 --seed 0 --max-steps 1000
+```
+
+### GRC fixed aspiration experiments
+
+```bash
+python main_GRC.py --aspiration 6.5 --seed 0
+python main_GRC.py --aspiration 7.5 --seed 0
+python main_GRC.py --aspiration 8.5 --seed 0
+```
+
+## Tests
+
+Run:
+
+```bash
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+Current tests cover:
+
+- SuboptimaWorld reward placement and shuffled rewards
+- boundary no-op behavior
+- Q-learning terminal/non-terminal updates
+- RS tie handling
+- GRC reference conversion consistency
+- Q-sharing element-wise max behavior
+
+## Reproducibility and limitations
+
+This repository is an implementation based on the paper and supports the key experimental mechanisms, including shuffled non-identical environments.
+
+It is **not claimed as an exact numeric reproduction** of every published figure out-of-the-box, since published curves depend on long-run simulation settings, seeds, plotting/aggregation details, and run-time environment.
 
 ## Citation
 
@@ -100,7 +112,3 @@ Social satisficing: Multi-agent reinforcement learning with satisficing agents.
 BioSystems, 243, 105276.
 https://doi.org/10.1016/j.biosystems.2024.105276
 ```
-
-## License and attribution
-
-Please consult the source paper and repository history for licensing and attribution information. The paper is published under the **CC BY-NC-ND 4.0** license.
